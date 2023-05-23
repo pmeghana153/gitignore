@@ -1,0 +1,711 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyMpnhu7FUYyItsBNi+2YaB0",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/pmeghana153/gitignore/blob/main/bigdata\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "4TIlwhPipeZu",
+        "outputId": "a755690d-8767-4c37-8f81-b718f652a9aa"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "sample_data\n"
+          ]
+        }
+      ],
+      "source": [
+        "# check if this instance of the notebook already has files present\n",
+        "# and thus determine which steps required prior to reading in file and handling the data\n",
+        "!ls\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# set-up spark (NB if Apache amend versions on download site we will need to amend path in wget command)\n",
+        "## NOTE that this version would make use of Hadoop if installed BUT that HDFS & Hadoop is not installed on our Colab\n",
+        "## (we are only using a single node (probably as a VM) so we will not be able to benefit from parallelism)\n",
+        "!clear\n",
+        "!echo welcome\n",
+        "\n",
+        "!rm -f spark-3.3.[01]-bin-hadoop3.tgz* \n",
+        "!rm -rf spark-3.3.[01]-bin-hadoop3\n",
+        "\n",
+        "!apt-get install openjdk-8-jdk-headless -qq > /dev/null\n",
+        "!wget https://downloads.apache.org/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz\n",
+        "!tar -xf spark-3.3.2-bin-hadoop3.tgz\n",
+        "\n",
+        "!ls -alt\n",
+        "print(\"standalone Spark is now installed\")"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "NKLnFgVJpfp7",
+        "outputId": "ec92c85e-3b28-4eef-fa55-22ea6ca79b3f"
+      },
+      "execution_count": 2,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "\u001b[H\u001b[2Jwelcome\n",
+            "--2023-05-23 17:43:56--  https://downloads.apache.org/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz\n",
+            "Resolving downloads.apache.org (downloads.apache.org)... 135.181.214.104, 88.99.95.219, 2a01:4f9:3a:2c57::2, ...\n",
+            "Connecting to downloads.apache.org (downloads.apache.org)|135.181.214.104|:443... connected.\n",
+            "HTTP request sent, awaiting response... 200 OK\n",
+            "Length: 299360284 (285M) [application/x-gzip]\n",
+            "Saving to: ‘spark-3.3.2-bin-hadoop3.tgz’\n",
+            "\n",
+            "spark-3.3.2-bin-had 100%[===================>] 285.49M  17.0MB/s    in 18s     \n",
+            "\n",
+            "2023-05-23 17:44:15 (15.7 MB/s) - ‘spark-3.3.2-bin-hadoop3.tgz’ saved [299360284/299360284]\n",
+            "\n",
+            "total 292372\n",
+            "drwxr-xr-x  1 root root      4096 May 23 17:44 .\n",
+            "drwxr-xr-x  1 root root      4096 May 23 17:25 ..\n",
+            "drwxr-xr-x  1 root root      4096 May 22 13:33 sample_data\n",
+            "drwxr-xr-x  4 root root      4096 May 22 13:32 .config\n",
+            "-rw-r--r--  1 root root 299360284 Feb 10 21:28 spark-3.3.2-bin-hadoop3.tgz\n",
+            "drwxr-xr-x 13  501 1000      4096 Feb 10 20:40 spark-3.3.2-bin-hadoop3\n",
+            "standalone Spark is now installed\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# init spark (ensure SPARK_HOME set to same version as we download earlier)\n",
+        "!pip3 install findspark\n",
+        "import os\n",
+        "os.environ[\"JAVA_HOME\"] = \"/usr/lib/jvm/java-8-openjdk-amd64\"\n",
+        "os.environ[\"SPARK_HOME\"] = \"/content/spark-3.3.2-bin-hadoop3\"\n",
+        "import findspark\n",
+        "findspark.init()\n",
+        "from pyspark import SparkConf, SparkContext\n",
+        "# the next line gives us 'local' mode. try 'local[2]' to use 2 cores or 'master:NNNN' to run on Spark standalone cluster at port NNNN\n",
+        "spark_conf = SparkConf().setMaster('local[2]').setAppName('MyApp')\n",
+        "sc = SparkContext(conf=spark_conf)\n",
+        "# see what we have by examining the Spark User Interface\n",
+        "from pyspark.sql import *\n",
+        "from pyspark.sql.functions import *\n",
+        "SparkSession.builder.getOrCreate()\n",
+        "## "
+      ],
+      "metadata": {
+        "id": "G9gpdI6OtgDd"
+      },
+      "execution_count": null,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "# get file for given year from TfL open data\n",
+        "!wget https://cycling.data.tfl.gov.uk/usage-stats/cyclehireusagestats-2014.zip\n",
+        "!unzip cyclehireusagestats-2014.zip"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "X5JJDIvPxoJH",
+        "outputId": "1ec2f44a-7cfc-4da4-d0f4-5deaad611ac8"
+      },
+      "execution_count": 3,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "--2023-05-23 18:02:28--  https://cycling.data.tfl.gov.uk/usage-stats/cyclehireusagestats-2014.zip\n",
+            "Resolving cycling.data.tfl.gov.uk (cycling.data.tfl.gov.uk)... 104.16.100.13, 104.16.101.13\n",
+            "Connecting to cycling.data.tfl.gov.uk (cycling.data.tfl.gov.uk)|104.16.100.13|:443... connected.\n",
+            "HTTP request sent, awaiting response... 200 OK\n",
+            "Length: 225215129 (215M) [application/zip]\n",
+            "Saving to: ‘cyclehireusagestats-2014.zip’\n",
+            "\n",
+            "cyclehireusagestats 100%[===================>] 214.78M  71.2MB/s    in 3.0s    \n",
+            "\n",
+            "2023-05-23 18:02:31 (71.2 MB/s) - ‘cyclehireusagestats-2014.zip’ saved [225215129/225215129]\n",
+            "\n",
+            "Archive:  cyclehireusagestats-2014.zip\n",
+            "  inflating: 1. Journey Data Extract 05Jan14-02Feb14.csv  \n",
+            "  inflating: 10a. Journey Data Extract 14Sep14-27Sep14.csv  \n",
+            "  inflating: 10b. Journey Data Extract 28Sep14-11Oct14.csv  \n",
+            "  inflating: 11a. Journey Data Extract 12Oct14-08Nov14.csv  \n",
+            "  inflating: 11b. Journey Data Extract 12Oct14-08Nov14.csv  \n",
+            "  inflating: 12a. Journey Data Extract 09Nov14-06Dec14.csv  \n",
+            "  inflating: 12b. Journey Data Extract 09Nov14-06Dec14.csv  \n",
+            "  inflating: 13a. Journey Data Extract 07Dec14-21Dec14.csv  \n",
+            "  inflating: 13b. Journey Data Extract 22Dec14-03Jan15.csv  \n",
+            "  inflating: 14. Journey Data Extract 08Dec13-04Jan14.csv  \n",
+            "  inflating: 2. Journey Data Extract 03Feb14-01Mar14.csv  \n",
+            "  inflating: 3. Journey Data Extract 02Mar14-31Mar14.csv  \n",
+            "  inflating: 4. Journey Data Extract 01Apr14-26Apr14.csv  \n",
+            "  inflating: 5. Journey Data Extract 27Apr14-24May14.csv  \n",
+            "  inflating: 6. Journey Data Extract 25May14-21Jun14.csv  \n",
+            "  inflating: 7. Journey Data Extract 22Jun14-19Jul14.csv  \n",
+            "  inflating: 8a Journey Data Extract 20Jul14-31Jul14.csv  \n",
+            "  inflating: 8b Journey Data Extract 01Aug14-16Aug14.csv  \n",
+            "  inflating: 9a Journey Data Extract 17Aug14-31Aug14.csv  \n",
+            "  inflating: 9b Journey Data Extract 01Sep14-13Sep14.csv  \n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "!pip install pyspark"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "Gcf1LWGkyBh1",
+        "outputId": "07ee2f63-6421-4e2e-9c23-96e4c0eb5471"
+      },
+      "execution_count": 5,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Looking in indexes: https://pypi.org/simple, https://us-python.pkg.dev/colab-wheels/public/simple/\n",
+            "Collecting pyspark\n",
+            "  Downloading pyspark-3.4.0.tar.gz (310.8 MB)\n",
+            "\u001b[2K     \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m310.8/310.8 MB\u001b[0m \u001b[31m2.8 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25h  Preparing metadata (setup.py) ... \u001b[?25l\u001b[?25hdone\n",
+            "Requirement already satisfied: py4j==0.10.9.7 in /usr/local/lib/python3.10/dist-packages (from pyspark) (0.10.9.7)\n",
+            "Building wheels for collected packages: pyspark\n",
+            "  Building wheel for pyspark (setup.py) ... \u001b[?25l\u001b[?25hdone\n",
+            "  Created wheel for pyspark: filename=pyspark-3.4.0-py2.py3-none-any.whl size=311317130 sha256=1c3fb16df9ab072226d17d7930ffbf6d1169e55f1cc530a7d97d2bac76ad8a79\n",
+            "  Stored in directory: /root/.cache/pip/wheels/7b/1b/4b/3363a1d04368e7ff0d408e57ff57966fcdf00583774e761327\n",
+            "Successfully built pyspark\n",
+            "Installing collected packages: pyspark\n",
+            "Successfully installed pyspark-3.4.0\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from pyspark.sql import SparkSession"
+      ],
+      "metadata": {
+        "id": "6l9tKbD9ydgX"
+      },
+      "execution_count": 8,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "spark = SparkSession \\\n",
+        "    .builder \\\n",
+        "    .appName(\"how to read csv file\") \\\n",
+        "    .getOrCreate()\n"
+      ],
+      "metadata": {
+        "id": "hRiC2IcAybB5"
+      },
+      "execution_count": 9,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df1 = spark.read.csv('/content/3. Journey Data Extract 02Mar14-31Mar14.csv',header=True)"
+      ],
+      "metadata": {
+        "id": "lEDE4l9Bx0FX"
+      },
+      "execution_count": 11,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df1.show"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "qyTwMShcyVRW",
+        "outputId": "859faeb8-e484-45d4-c18c-54a0ff4931fb"
+      },
+      "execution_count": 12,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "<bound method DataFrame.show of DataFrame[Rental Id: string, Duration: string, Bike Id: string, End Date: string, EndStation Id: string, EndStation Name: string, Start Date: string, StartStation Id: string, StartStation Name: string]>"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 12
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df1 = df1.withColumn(\"Duration\", df1[\"Duration\"].cast(\"int\"))"
+      ],
+      "metadata": {
+        "id": "7-0jJ0fgysMF"
+      },
+      "execution_count": 23,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df1.show()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "aoXAlaU3yzq9",
+        "outputId": "7af90b3b-7dfc-46c1-e3e4-043ab15a39b3"
+      },
+      "execution_count": 15,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+\n",
+            "|Rental Id|Duration|Bike Id|        End Date|EndStation Id|     EndStation Name|      Start Date|StartStation Id|   StartStation Name|\n",
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+\n",
+            "| 30845679|    1380|   6523|03/03/2014 23:27|          695|Islington Green, ...|03/03/2014 23:04|            311|Foley Street, Fit...|\n",
+            "| 30947961|    1500|   2295|07/03/2014 23:31|           93|Cloudesley Road, ...|07/03/2014 23:06|             81|Great Titchfield ...|\n",
+            "| 31120887|    1440|   5829|13/03/2014 22:36|          695|Islington Green, ...|13/03/2014 22:12|            311|Foley Street, Fit...|\n",
+            "| 31150579|    1380|   7395|14/03/2014 22:29|          695|Islington Green, ...|14/03/2014 22:06|            357|Howland Street, F...|\n",
+            "| 31248177|    1440|  11260|17/03/2014 22:29|          695|Islington Green, ...|17/03/2014 22:05|              6|Broadcasting Hous...|\n",
+            "| 31274692|    1200|   7683|18/03/2014 22:27|          695|Islington Green, ...|18/03/2014 22:07|            184|Portland Place, M...|\n",
+            "| 31289623|     180|  11215|19/03/2014 14:51|            6|Broadcasting Hous...|19/03/2014 14:48|             28|Bolsover Street, ...|\n",
+            "| 31302753|    1380|  10572|19/03/2014 22:28|          695|Islington Green, ...|19/03/2014 22:05|            184|Portland Place, M...|\n",
+            "| 31370856|    1140|   5669|22/03/2014 18:58|          253|Shoreditch Park, ...|22/03/2014 18:39|             72|Farringdon Lane, ...|\n",
+            "| 31437048|     600|   2096|25/03/2014 21:38|          697|Charlotte Terrace...|25/03/2014 21:28|             16|Cartwright Garden...|\n",
+            "| 31459175|    1020|   9041|26/03/2014 22:27|          697|Charlotte Terrace...|26/03/2014 22:10|             81|Great Titchfield ...|\n",
+            "| 31472842|    1260|  10436|27/03/2014 14:42|            6|Broadcasting Hous...|27/03/2014 14:21|            695|Islington Green, ...|\n",
+            "| 31598358|    1140|   7782|31/03/2014 23:23|          697|Charlotte Terrace...|31/03/2014 23:04|            311|Foley Street, Fit...|\n",
+            "| 31476343|    1800|   6184|27/03/2014 17:42|           17|Hatton Wall, Holborn|27/03/2014 17:12|            430|South Parade, Che...|\n",
+            "| 31483976|    1680|   3507|27/03/2014 22:40|          529|Manresa Road, Che...|27/03/2014 22:12|             17|Hatton Wall, Holborn|\n",
+            "| 31521890|    1980|   4798|29/03/2014 14:07|          254|Chadwell Street, ...|29/03/2014 13:34|            430|South Parade, Che...|\n",
+            "| 31571295|    2100|  10762|31/03/2014 06:10|            4|St. Chad's Street...|31/03/2014 05:35|            430|South Parade, Che...|\n",
+            "| 31230142|    1920|    891|17/03/2014 10:50|           18|Drury Lane, Coven...|17/03/2014 10:18|            430|South Parade, Che...|\n",
+            "| 30891226|     840|   7109|05/03/2014 18:37|           32|Leonard Circus , ...|05/03/2014 18:23|            358|High Holborn , Co...|\n",
+            "| 30890973|     540|   4120|05/03/2014 18:26|          590|Greenberry Street...|05/03/2014 18:17|            242|Beaumont Street, ...|\n",
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+\n",
+            "only showing top 20 rows\n",
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "    # group \"StartStation Id\" and sum their \"Duration\" (seconds), sort in descending order\n",
+        "    start_df1 = (df1.select(\"StartStation Id\", \"StartStation Name\", \"EndStation Id\", \"EndStation Name\",\"Duration\").groupBy(\"StartStation Id\", \"StartStation Name\")).sum(\"Duration\").orderBy(\"sum(Duration)\")\n",
+        "    # show top 10\n",
+        "    start_df1.show(10)\n",
+        "    print('Note \"Duration\" is in seconds (see above table)')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "mfzzDzE-y9d9",
+        "outputId": "47b7ff89-4bd3-4bfe-8ad7-4c40a4842078"
+      },
+      "execution_count": 16,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+---------------+--------------------+-------------+\n",
+            "|StartStation Id|   StartStation Name|sum(Duration)|\n",
+            "+---------------+--------------------+-------------+\n",
+            "|            762|Storey's Gate, We...|            0|\n",
+            "|            766|Ram Street, Wands...|            0|\n",
+            "|            198|           tabletop1|         1500|\n",
+            "|            767|Wandsworth Museum...|        48480|\n",
+            "|            672|Grant Road Centra...|        55080|\n",
+            "|            555|Westfield Eastern...|        67200|\n",
+            "|            554|Aberfeldy Street,...|        72240|\n",
+            "|            494|South Quay East, ...|       107100|\n",
+            "|            725|Thessaly Road Nor...|       115320|\n",
+            "|            740|Sirdar Road, Avon...|       127560|\n",
+            "+---------------+--------------------+-------------+\n",
+            "only showing top 10 rows\n",
+            "\n",
+            "Note \"Duration\" is in seconds (see above table)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "    #group \"EndStation Id\" and sum their \"Duration\", sort in descending order\n",
+        "    end_df1 = (df1.select(\"EndStation Id\", \"EndStation Name\", \"EndStation Id\", \"EndStation Name\",\"Duration\").groupBy(\"EndStation Id\", \"EndStation Name\")).sum(\"Duration\").orderBy(\"sum(Duration)\", ascending=False)\n",
+        "    # show top 10\n",
+        "    end_df1.show(10)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "CUwG0_sXzOku",
+        "outputId": "e245a1ee-ccc5-4f0b-a817-bbd3ba138113"
+      },
+      "execution_count": 17,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+-------------+--------------------+-------------+\n",
+            "|EndStation Id|     EndStation Name|sum(Duration)|\n",
+            "+-------------+--------------------+-------------+\n",
+            "|          191|Hyde Park Corner,...|     17401380|\n",
+            "|          406|Speakers' Corner ...|     13870800|\n",
+            "|          303|Albert Gate, Hyde...|     12061920|\n",
+            "|          307|Black Lion Gate, ...|     11478780|\n",
+            "|          346|Mechanical Worksh...|      8166540|\n",
+            "|           14|Belgrove Street ,...|      7031640|\n",
+            "|          213|Wellington Arch, ...|      7001040|\n",
+            "|          194|Hop Exchange, The...|      6637020|\n",
+            "|          248|Triangle Car Park...|      6491700|\n",
+            "|          553|Regent's Row , Ha...|      6429600|\n",
+            "+-------------+--------------------+-------------+\n",
+            "only showing top 10 rows\n",
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df1.groupBy().sum().collect()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "alU7UXiXzg6E",
+        "outputId": "ca884899-ca06-4b6b-bd21-d081dee69d0e"
+      },
+      "execution_count": 18,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "[Row(sum(Duration)=1046829420)]"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 18
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "result1 = df1.groupBy().sum().collect()\n",
+        "\n",
+        "# Get the sum value in seconds from the result\n",
+        "sum_in_seconds_df1 = result1[0][0]\n",
+        "\n",
+        "# Convert seconds to hours\n",
+        "sum_in_hours_df1 = sum_in_seconds_df1 / 3600\n",
+        "\n",
+        "# Print the sum value in hours\n",
+        "print(\"Sum(Duration) in hours:\", sum_in_hours_df1)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "Uifytxw3ziaS",
+        "outputId": "a02b3afb-bbb6-46e5-a2da-861c79fa4b6a"
+      },
+      "execution_count": 21,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Sum(Duration) in hours: 290785.95\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df2 = spark.read.csv('/content/4. Journey Data Extract 01Apr14-26Apr14.csv',header=True)"
+      ],
+      "metadata": {
+        "id": "26jhxndK69h1"
+      },
+      "execution_count": 22,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df2 = df2.withColumn(\"Duration\", df2[\"Duration\"].cast(\"int\"))"
+      ],
+      "metadata": {
+        "id": "JRMP7MDb7HzL"
+      },
+      "execution_count": 24,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df2.show()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "6yk-_hHX7OrK",
+        "outputId": "ace2f8b2-f4ee-4ca9-cc88-01e4322e4dbd"
+      },
+      "execution_count": 25,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+----+----+----+\n",
+            "|Rental Id|Duration|Bike Id|        End Date|EndStation Id|     EndStation Name|      Start Date|StartStation Id|   StartStation Name| _c9|_c10|_c11|\n",
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+----+----+----+\n",
+            "| 31598682|     540|    982|01/04/2014 00:09|          544|Percival Street, ...|01/04/2014 00:00|            217|Wormwood Street, ...|null|null|null|\n",
+            "| 31598687|    1980|  11695|01/04/2014 00:33|          510|Westferry DLR, Li...|01/04/2014 00:00|            510|Westferry DLR, Li...|null|null|null|\n",
+            "| 31598691|     240|   6272|01/04/2014 00:05|          194|Hop Exchange, The...|01/04/2014 00:01|             92|Borough Road, Ele...|null|null|null|\n",
+            "| 31598689|    1080|  11469|01/04/2014 00:19|          237|Vaughan Way, Wapping|01/04/2014 00:01|            556|Heron Quays DLR, ...|null|null|null|\n",
+            "| 31598685|     540|  10368|01/04/2014 00:10|          544|Percival Street, ...|01/04/2014 00:01|             12|Malet Street, Blo...|null|null|null|\n",
+            "| 31598692|    1080|   1884|01/04/2014 00:19|          344|Goswell Road (Cit...|01/04/2014 00:01|            383|  Frith Street, Soho|null|null|null|\n",
+            "| 31598688|    1260|   9661|01/04/2014 00:22|          156|New Kent Road, Bo...|01/04/2014 00:01|            733|  Park Lane, Mayfair|null|null|null|\n",
+            "| 31598684|    1440|   1211|01/04/2014 00:25|          128|Emperor's Gate, S...|01/04/2014 00:01|            303|Albert Gate, Hyde...|null|null|null|\n",
+            "| 31598686|     360|   9329|01/04/2014 00:07|          163|Sloane Avenue, Kn...|01/04/2014 00:01|            124|Eaton Square, Bel...|null|null|null|\n",
+            "| 31598693|     600|  12023|01/04/2014 00:12|           16|Cartwright Garden...|01/04/2014 00:02|             18|Drury Lane, Coven...|null|null|null|\n",
+            "| 31598696|     360|   5775|01/04/2014 00:08|          311|Foley Street, Fit...|01/04/2014 00:02|             24|British Museum, B...|null|null|null|\n",
+            "| 31598694|     240|   6962|01/04/2014 00:06|          184|Portland Place, M...|01/04/2014 00:02|             56|Paddington Street...|null|null|null|\n",
+            "| 31598695|     780|    231|01/04/2014 00:15|          577|Globe Town Market...|01/04/2014 00:02|             39|Shoreditch High S...|null|null|null|\n",
+            "| 31598698|     960|   4715|01/04/2014 00:19|          542|Salmon Lane, Lime...|01/04/2014 00:03|            322|Palissy Street, S...|null|null|null|\n",
+            "| 31598697|     600|   7816|01/04/2014 00:13|          749|Haggerston Road, ...|01/04/2014 00:03|            695|Islington Green, ...|null|null|null|\n",
+            "| 31598699|    1560|   6453|01/04/2014 00:29|          579|Queen Street 2, Bank|01/04/2014 00:03|            252|Jubilee Gardens, ...|null|null|null|\n",
+            "| 31598700|     240|   2911|01/04/2014 00:08|          286|St. John's Wood R...|01/04/2014 00:04|             47|Warwick Avenue St...|null|null|null|\n",
+            "| 31598704|     360|   3504|01/04/2014 00:10|          499|    Furze Green, Bow|01/04/2014 00:04|            550|Harford Street, M...|null|null|null|\n",
+            "| 31598701|     780|  11255|01/04/2014 00:17|          731|Michael Road, Wal...|01/04/2014 00:04|            368|Harriet Street, K...|null|null|null|\n",
+            "| 31598702|     900|   2206|01/04/2014 00:19|          409|   Strata, Southwark|01/04/2014 00:04|            341|Craven Street, St...|null|null|null|\n",
+            "+---------+--------+-------+----------------+-------------+--------------------+----------------+---------------+--------------------+----+----+----+\n",
+            "only showing top 20 rows\n",
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "    start_df2 = (df2.select(\"StartStation Id\", \"StartStation Name\", \"EndStation Id\", \"EndStation Name\",\"Duration\").groupBy(\"StartStation Id\", \"StartStation Name\")).sum(\"Duration\").orderBy(\"sum(Duration)\")\n",
+        "    # show top 10\n",
+        "    start_df2.show(10)\n",
+        "    print('Note \"Duration\" is in seconds (see above table)')"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "UJR3g9Wf7SZa",
+        "outputId": "eaaf9e59-9883-44bf-f5f7-85354df99cdc"
+      },
+      "execution_count": 27,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+---------------+--------------------+-------------+\n",
+            "|StartStation Id|   StartStation Name|sum(Duration)|\n",
+            "+---------------+--------------------+-------------+\n",
+            "|            613|Woodstock Grove, ...|            0|\n",
+            "|            771|Rifle Place, Avon...|            0|\n",
+            "|            774|Hurlingham Park, ...|            0|\n",
+            "|            773|Tallis Street, Te...|          420|\n",
+            "|            770|Gwendwr Road, Wes...|        16740|\n",
+            "|            766|Ram Street, Wands...|        41880|\n",
+            "|            767|Wandsworth Museum...|        57060|\n",
+            "|            605|Seymour Place, Ma...|        59820|\n",
+            "|            555|Westfield Eastern...|        64320|\n",
+            "|            752|Manfred Road, Eas...|        96060|\n",
+            "+---------------+--------------------+-------------+\n",
+            "only showing top 10 rows\n",
+            "\n",
+            "Note \"Duration\" is in seconds (see above table)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "    #group \"EndStation Id\" and sum their \"Duration\", sort in descending order\n",
+        "    end_df2 = (df1.select(\"EndStation Id\", \"EndStation Name\", \"EndStation Id\", \"EndStation Name\",\"Duration\").groupBy(\"EndStation Id\", \"EndStation Name\")).sum(\"Duration\").orderBy(\"sum(Duration)\", ascending=False)\n",
+        "    # show top 10\n",
+        "    end_df2.show(10)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "o1KoWxSx7qEk",
+        "outputId": "acf81b07-ee9c-4e69-8053-dea2dbf2ba9b"
+      },
+      "execution_count": 28,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "+-------------+--------------------+-------------+\n",
+            "|EndStation Id|     EndStation Name|sum(Duration)|\n",
+            "+-------------+--------------------+-------------+\n",
+            "|          191|Hyde Park Corner,...|     17401380|\n",
+            "|          406|Speakers' Corner ...|     13870800|\n",
+            "|          303|Albert Gate, Hyde...|     12061920|\n",
+            "|          307|Black Lion Gate, ...|     11478780|\n",
+            "|          346|Mechanical Worksh...|      8166540|\n",
+            "|           14|Belgrove Street ,...|      7031640|\n",
+            "|          213|Wellington Arch, ...|      7001040|\n",
+            "|          194|Hop Exchange, The...|      6637020|\n",
+            "|          248|Triangle Car Park...|      6491700|\n",
+            "|          553|Regent's Row , Ha...|      6429600|\n",
+            "+-------------+--------------------+-------------+\n",
+            "only showing top 10 rows\n",
+            "\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "df2.groupBy().sum().collect()"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "BX-WEfNr7vsg",
+        "outputId": "33ff2f3e-81e9-489b-8ac8-cdce130eddb0"
+      },
+      "execution_count": 29,
+      "outputs": [
+        {
+          "output_type": "execute_result",
+          "data": {
+            "text/plain": [
+              "[Row(sum(Duration)=984257640)]"
+            ]
+          },
+          "metadata": {},
+          "execution_count": 29
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "result2 = df2.groupBy().sum().collect()\n",
+        "\n",
+        "# Get the sum value in seconds from the result\n",
+        "sum_in_seconds_df2 = result2[0][0]\n",
+        "\n",
+        "# Convert seconds to hours\n",
+        "sum_in_hours_df2 = sum_in_seconds_df2 / 3600\n",
+        "\n",
+        "# Print the sum value in hours\n",
+        "print(\"Sum(Duration) in hours:\", sum_in_hours_df2)"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "aBgH6RIX71Nh",
+        "outputId": "e3b6e20c-2641-470a-db17-6b6a2b78f613"
+      },
+      "execution_count": 31,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Sum(Duration) in hours: 273404.9\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [],
+      "metadata": {
+        "id": "60yJJMw_8UND"
+      },
+      "execution_count": null,
+      "outputs": []
+    }
+  ]
+}
